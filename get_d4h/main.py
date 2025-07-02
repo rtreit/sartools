@@ -149,9 +149,9 @@ def capture_headers_and_call():
     all_incidents = []
     optimal_page_size = 100  # Start with a reasonable default
     
-    # Extended date range - going back 2 years
+    # Extended date range - going back to 2018
     print("Testing page sizes and collecting incidents...")
-    print("Date range: 2023-01-01 to 2025-07-03")
+    print("Date range: 2018-01-01 to 2026-12-31")
     print("="*60)
     
     # First, test different page sizes to find the optimal one
@@ -164,9 +164,9 @@ def capture_headers_and_call():
             "parameters": {
                 "query": {
                     "page": 0, "size": size,
-                    "before": "2025-07-03T14:00:00.000Z",
-                    "after":  "2023-01-01T16:00:00.000Z",  # Extended to 2 years
-                    "sort":   "startsAt","order": "desc"
+                    "before": "2026-12-31T00:00:00.000Z",
+                    "after":  "2018-01-01T00:00:00.000Z",  
+                    "sort":   "startsAt","order": "asc"
                 }
             }
         }
@@ -223,10 +223,10 @@ def capture_headers_and_call():
                 "query": {
                     "page": page, 
                     "size": optimal_page_size,
-                    "before": "2025-07-03T14:00:00.000Z",
-                    "after":  "2023-01-01T16:00:00.000Z",  # Extended to 2 years
+                    "before": "2026-12-31T00:00:00.000Z",
+                    "after":  "2018-01-01T00:00:00.000Z",  # Extended to 8+ years
                     "sort":   "startsAt",
-                    "order": "desc"
+                    "order": "asc"  # Changed to ascending to match testing
                 }
             }
         }
@@ -291,8 +291,8 @@ def capture_headers_and_call():
             "metadata": {
                 "total_incidents": len(all_incidents),
                 "date_range": {
-                    "start": "2023-01-01T16:00:00.000Z",
-                    "end": "2025-07-03T14:00:00.000Z"
+                    "start": "2018-01-01T00:00:00.000Z",
+                    "end": "2026-12-31T00:00:00.000Z"
                 },
                 "collected_at": "2025-07-02T00:00:00.000Z",
                 "page_size_used": optimal_page_size,
