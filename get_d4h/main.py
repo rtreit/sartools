@@ -124,7 +124,7 @@ def capture_headers_and_call():
     print(f"\nSuccessfully captured API request to: {captured['url']}")
 
     # 4. Extract cookies from the browser context and combine with headers
-    cookie_string = "; ".join([f"{cookie['name']}={cookie['value']}" for cookie in cookies])
+    cookie_string = "; ".join([f"{cookie.get('name', '')}={cookie.get('value', '')}" for cookie in cookies if cookie.get('name')])
     
     hdrs = { k:v for k,v in captured['headers'].items()
              if k.lower() in (
@@ -145,15 +145,27 @@ def capture_headers_and_call():
     if 'x-d4h-requester' not in hdrs:
         print("⚠️  WARNING: No 'x-d4h-requester' header found - API calls may fail")
     
-    # now test different page sizes
-    for size in [50,100,150,200]:
+    # Test different page sizes and collect all incidents
+    all_incidents = []
+    optimal_page_size = 100  # Start with a reasonable default
+    
+    # Extended date range - going back 2 years
+    print("Testing page sizes and collecting incidents...")
+    print("Date range: 2023-01-01 to 2025-07-03")
+    print("="*60)
+    
+    # First, test different page sizes to find the optimal one
+    test_sizes = [50, 100, 200, 500, 1000]
+    working_sizes = []
+    
+    for size in test_sizes:
         payload = {
             "url": "/incidents",
             "parameters": {
                 "query": {
                     "page": 0, "size": size,
                     "before": "2025-07-03T14:00:00.000Z",
-                    "after":  "2025-01-01T16:00:00.000Z",
+                    "after":  "2023-01-01T16:00:00.000Z",  # Extended to 2 years
                     "sort":   "startsAt","order": "desc"
                 }
             }
@@ -162,42 +174,162 @@ def capture_headers_and_call():
             r = requests.get(API_URL,
                            headers=hdrs,
                            params={'passthrough': json.dumps(payload)})
-            print(f"size={size:3} → status: {r.status_code}")
+            print(f"Testing size={size:4} → status: {r.status_code}", end="")
             
             if r.status_code == 200:
                 try:
-                    # Log the raw response first
-                    print(f"          → Raw response (first 500 chars):")
-                    print(f"          → {r.text[:500]}")
-                    if len(r.text) > 500:
-                        print(f"          → ... (truncated, total length: {len(r.text)} chars)")
-                    print()
-                    
                     data = r.json()
-                    items = data.get('results', [])  # Changed from 'incidents' to 'results'
-                    print(f"          → Parsed JSON successfully")
-                    print(f"          → got {len(items)} items")
+                    items = data.get('results', [])
+                    total_count = data.get('totalCount', 0)
+                    print(f" → got {len(items):3} items (total available: {total_count})")
+                    working_sizes.append((size, len(items), total_count))
                     
-                    # Also log the structure of the response
-                    if isinstance(data, dict):
-                        print(f"          → Response keys: {list(data.keys())}")
-                        if 'results' in data and len(data['results']) > 0:
-                            print(f"          → First incident keys: {list(data['results'][0].keys())}")
-                            # Show a sample incident
-                            first_incident = data['results'][0]
-                            print(f"          → Sample incident ID: {first_incident.get('id', 'N/A')}")
-                            print(f"          → Sample created: {first_incident.get('createdAt', 'N/A')}")
-                            print(f"          → Sample description: {first_incident.get('description', 'N/A')[:100]}...")
+                    if len(items) == size and total_count > size:
+                        print(f"           → Size {size} is working but there are more incidents available")
+                    elif len(items) < size:
+                        print(f"           → Size {size} got all available incidents")
                     
                 except json.JSONDecodeError:
-                    print(f"          → response is not JSON (length: {len(r.text)})")
-                    print(f"          → response preview: {r.text[:200]}...")
+                    print(f" → ERROR: Invalid JSON response")
             else:
-                print(f"          → error: {r.text[:200]}...")
+                print(f" → ERROR: {r.text[:100]}...")
                 
         except Exception as e:
-            print(f"size={size:3} → error: {e}")
-        print()  # Add spacing between requests
+            print(f" → ERROR: {e}")
+    
+    if not working_sizes:
+        print("❌ No working page sizes found! Cannot continue.")
+        return
+    
+    # Choose the largest working page size
+    optimal_page_size = max(working_sizes, key=lambda x: x[0])[0]
+    total_available = working_sizes[-1][2] if working_sizes else 0
+    
+    print(f"\n🎯 Using optimal page size: {optimal_page_size}")
+    print(f"📊 Total incidents available: {total_available}")
+    
+    # Now collect all incidents using pagination
+    print(f"\n{'='*60}")
+    print("COLLECTING ALL INCIDENTS")
+    print(f"{'='*60}")
+    
+    page = 0
+    total_collected = 0
+    
+    while True:
+        payload = {
+            "url": "/incidents",
+            "parameters": {
+                "query": {
+                    "page": page, 
+                    "size": optimal_page_size,
+                    "before": "2025-07-03T14:00:00.000Z",
+                    "after":  "2023-01-01T16:00:00.000Z",  # Extended to 2 years
+                    "sort":   "startsAt",
+                    "order": "desc"
+                }
+            }
+        }
+        
+        try:
+            print(f"📄 Fetching page {page + 1} (size={optimal_page_size})...", end=" ")
+            r = requests.get(API_URL,
+                           headers=hdrs,
+                           params={'passthrough': json.dumps(payload)})
+            
+            if r.status_code != 200:
+                print(f"❌ Error {r.status_code}: {r.text[:100]}...")
+                break
+            
+            data = r.json()
+            items = data.get('results', [])
+            
+            if not items:
+                print("✅ No more incidents found")
+                break
+            
+            # Add incidents to our collection
+            all_incidents.extend(items)
+            total_collected += len(items)
+            
+            print(f"✅ Got {len(items)} incidents (total: {total_collected})")
+            
+            # Show sample incident info from this page
+            if items:
+                first_incident = items[0]
+                print(f"   → Latest in this page: {first_incident.get('createdAt', 'N/A')} - {first_incident.get('description', 'N/A')[:50]}...")
+                if len(items) > 1:
+                    last_incident = items[-1]
+                    print(f"   → Oldest in this page:  {last_incident.get('createdAt', 'N/A')} - {last_incident.get('description', 'N/A')[:50]}...")
+            
+            # If we got fewer items than the page size, we've reached the end
+            if len(items) < optimal_page_size:
+                print("✅ Reached end of results (partial page)")
+                break
+            
+            page += 1
+            
+            # Safety check to prevent infinite loops
+            if page > 100:  # Max 100 pages
+                print("⚠️  Reached maximum page limit (100 pages)")
+                break
+                
+        except Exception as e:
+            print(f"❌ Error on page {page + 1}: {e}")
+            break
+    
+    # Save all incidents to JSON file
+    print(f"\n{'='*60}")
+    print("SAVING RESULTS")
+    print(f"{'='*60}")
+    
+    if all_incidents:
+        output_file = "incidents.json"
+        
+        # Create a comprehensive data structure
+        output_data = {
+            "metadata": {
+                "total_incidents": len(all_incidents),
+                "date_range": {
+                    "start": "2023-01-01T16:00:00.000Z",
+                    "end": "2025-07-03T14:00:00.000Z"
+                },
+                "collected_at": "2025-07-02T00:00:00.000Z",
+                "page_size_used": optimal_page_size,
+                "pages_fetched": page + 1
+            },
+            "incidents": all_incidents
+        }
+        
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, indent=2, ensure_ascii=False)
+            
+            print(f"✅ Successfully saved {len(all_incidents)} incidents to '{output_file}'")
+            print(f"📁 File size: {len(json.dumps(output_data))} characters")
+            
+            # Show some statistics
+            if all_incidents:
+                print(f"\n📊 INCIDENT STATISTICS:")
+                print(f"   • Total incidents: {len(all_incidents)}")
+                
+                # Date range of collected incidents
+                dates = [inc.get('createdAt') for inc in all_incidents if inc.get('createdAt')]
+                if dates:
+                    dates.sort()
+                    print(f"   • Date range: {dates[0]} to {dates[-1]}")
+                
+                # Sample incident types or categories if available
+                if all_incidents[0]:
+                    sample_keys = list(all_incidents[0].keys())
+                    print(f"   • Incident data fields: {', '.join(sample_keys[:10])}")
+                    if len(sample_keys) > 10:
+                        print(f"     ... and {len(sample_keys) - 10} more fields")
+            
+        except Exception as e:
+            print(f"❌ Error saving to file: {e}")
+    else:
+        print("❌ No incidents collected - nothing to save")
 
 def main():
     print("Hello from get-d4h!")
